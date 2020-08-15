@@ -40,15 +40,18 @@
 
 
 
-1. 插入操作:
+1. put操作:
 
    - 若当前的表为空或者为初始化, 执行resize()
+- 若新hash对应位置为null, 新建节点, 并返回null
+   - 不然开始查找对于的桶(这里要区分树还是链表), 桶空就直接插入节点, 若新建后大于8需要红黑树化.
 
-   - 若新hash对应位置为null, 新建节点, 并返回null
+2. get操作:
 
-   - 不然开始查找对于的桶(这里要区分树还是链表), 找不到就新建节点, 若新建后大于8需要红黑树化.
+   1. 对key的hashcode()结果进行hash()
+   2. 如果对应的桶没有节点, 直接返回, 否则通过key.equals()去查找对应的entry(可能为树查找或者链表查找)
 
-2. resize操作:
+3. resize操作:
 
    1. cap大于0
 
@@ -66,7 +69,7 @@
 
 ## ConcurrentHashMap(jdk8后)
 
-ConcurrentHashMap(jdk1.7以前):有一个名为Segment的内部final类，因此我们可以说ConcurrentHashMap在内部被划分为大小为32的段，因此最多32个线程可以一次工作。这意味着在高并发性期间，每个线程可以在每个段上工作，最多可以在32线程可以在max下运行，只需维护32个锁来保护ConcurrentHashMap的每个bucket。
+- JDK1.7(注意): ConcurrentHashMap(jdk1.7以前):有一个名为Segment的内部final类，因此我们可以说ConcurrentHashMap在内部被划分为大小为32的段，因此最多32个线程可以一次工作。这意味着在高并发性期间，每个线程可以在每个段上工作，最多可以在32线程可以在max下运行，只需维护32个锁来保护ConcurrentHashMap的每个bucket。
 
 1. 最大容量: 1 << 30
 2. 默认容量: 16
@@ -76,23 +79,14 @@ ConcurrentHashMap(jdk1.7以前):有一个名为Segment的内部final类，因此
 6. 树化阈值: 8
 7. 链表化阈值: 6
 8. 最小可树化数组容量(当小于这个值时, 不进行树化, 至少为4 * 树化阈值): 64 
-9. **键值都不可为null**
-10. 利用**sizeCtl: int**进行初始化与resize控制, 当此值为负时, 表在resize或者初始化, 不然则为-(1 + 目前参与resizing的线程), 不然当表为null时, 则为初始表长度(默认0). 在初始化过后, 持有要resize的表的元素数量
+9. 和普通HashMap一样, 负载因子为0.75时, 红黑树化阈值为8, 此概率少于一千万分之一
+10. 两个线程访问不同线程的锁争用概率
+    随机散列下的elements大约为1 /（8 * #elements）
+11. **key 和value不能为null**
 
+#### Node结构:
 
-2. 节点的哈希值字段二进制第一位(符号位), 
-3. 插入一个空的桶只是一个简单的CAS操作, 其他更新操作, 需要锁, 使用synchronized
-4. 和普通HashMap一样, 负载因子为0.75时, 红黑树化阈值为8, 此概率少于一千万分之一
-5. 两个线程访问不同线程的锁争用概率
-   随机散列下的elements大约为1 /（8 * #elements）。
-
-
-
-#### 三个结构:
-
-1. Node(节点类): 继承Map.Entry, 哈希值与键为final域, val与next为volatile域(保证内存可见性)
-2. TreeNode(红黑树节点): 继承Node类
-3. TreeBin(存储树形结构的容器)
+Node(节点类): 继承Map.Entry, 哈希值与键为final域, **val与next为volatile域(保证内存可见性)**
 
 #### 初始化:
 1. 哈希表懒初始化, 在第一次插入的时候才申请数组空间, 长度为2次幂
@@ -100,7 +94,7 @@ ConcurrentHashMap(jdk1.7以前):有一个名为Segment的内部final类，因此
 3. 当sizeCtl < 0时, 表示其他线程正在扩容或初始化, 开始自旋
 4. 否则用CAS设置sizeCtl为-1, 即初始化状态,
 
-#### 插入:
+#### PUT插入:
 1. 判断键值是否为null, 若是要抛出NUllPointerException
 2. 判断table(Node数组, volatile)里的每个项, 循环里:
     1. 表是否已初始化, 没有就需要初始化

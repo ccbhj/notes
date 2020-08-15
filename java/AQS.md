@@ -1,4 +1,4 @@
-# AbstractQueuedSynchronizer(AQS)
+# 就AbstractQueuedSynchronizer(AQS)
 
 1. 定义: 队列同步器AbstractQueuedSynchronizer(以下简称同步器),是用来构建锁或其他同步组件的基础框架,**它使用了一个int成员变量(volatile int state)表示同步状态,通过内置的FIFO列来完成资源获取线程的排队工作, 用CAS来控制其状态改变**
 2. LOCK接口: Java SE5提供的锁功能, 用于更加灵活的锁控制,虽然缺少了(通过synchronized块或者方法所提供的)隐式获取释放锁的便捷性,但是却有了锁获取与释放的可操作性、可中断的获取锁以及超时获取锁等多种synchronized键字所不具备的同步特性。
@@ -9,6 +9,7 @@
       - 共享类: tryAcquireShare(), tryReleaseShare()
       - 是否独享式: isHeldExclusively()
 4. 以ReentrantLock为例, **volatile int state初始化为0, 表示未锁定.** 当有线程调用lock()时, 会用tryAcquire(), 使state += 1独占该锁, 当线程调用unlock时, 使state -= 1, 直到state=0,其他线程才能获取锁, 释放锁之前，线程自己是可以重复获取此锁的（state会累加, **这里把state看作成一个资源, 要获取锁就是要获取资源**
+
 5. 以CountDownLatch为例, 任务分给N个线程去执行, state也初始化为N, 之后每个线程完成时调用countDown(), state会用CAS减1, 直到state = 0, 这时可以调用unpark()调用主线程, 主线程会从await()中返回, 
 
 4. 实现:
@@ -291,3 +292,39 @@
          cond.wait(): 解锁并挂起线程, 并加入condition等待队列
    
           cond.signal()唤醒在condition等待队列中的线程
+   
+7. ReentrantLock:
+
+   1. 可实现非公平/公平锁, 默认为非公平锁
+   2. 非公平和公平锁的区别在于两点:
+      1. 非公平锁在调用lock后, 会用cas先尝试抢占锁, 失败后再加入队尾, 成功直接返回
+      2. 非公平锁在tryAcquire()中发现锁的话, 就会直接cas抢锁, 而公平锁会把锁给队头的下一个线程. 
+   3. 与Synchronized的区别:
+      1. syn由编译器控制, 而reentrantLock更加自由可控(tryLock)
+      2. reentrantLock可公平也可不公平
+      3. syn不可中断, reentrant可以
+
+8. BlockingQueue:
+
+   1. BlockingQueue是一个接口, 用于实现并发安全的先进先出阻塞队列
+
+   2. 不接受null的插入, 因为null作为特殊值被返回(不存在时), 用null来判断有无值返回
+
+   3. ArrayBlockingQueue实现:
+
+      1. 用一个ReentrantLock与它的两个Condition实现并发控制, 两个Condition分别控制NotEmpty, NotFull
+      2. put: 若队列已经满, 则循环调用notFull.await(), 直到队不满, 然后入队enqueue,  自增putIndex并设置元素, 同时通知notEmpty条件
+      3. take: 若队空, 则循环调用notEmpty.await(), 直到队非空, 然后出队dequeue: 自增takeIndex并置空对应元素位置, 同时通知notFull条件
+      4. 构造时可指定:
+         1. 队列容量
+         2. 独占还是共享
+         3. 初始化集合, 在构造时先加入队列
+      5. **注意: condition是可以被中断的, 且在await/singal前要让reentrantLock上锁**
+
+   4. LinkedBlockingQueue实现:
+
+      可实现有界/无界队列
+
+      1. 用两个ReentrantLock(putLock, takeLock)的Condition(notFull,  notEmpty)实现并发控制, 分别控制队列空条件, 和队列不空的条件, 同时用原子类控制count
+      2. put: putLock加锁, 若队满, 循环调用notFull.await(), 然后元素再进队, 并唤醒notEmpty.signal(), 然后还要通过原子类检查队是否满, 若不是, 则还要调用notFull.signal通知下一个线程继续put
+      3. take: takeLock加锁, 若队空, 循环调用notEmpty.await(),  然后元素再出队, 之后还有通过原子类检查count > 1, 若>1还要notEmpty.signal来唤醒下一个线程继续take

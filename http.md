@@ -32,21 +32,27 @@
 
 - 200: OK
 
-- 201(Created): 已创建。成功请求并创建了新的资源, 且其URI在响应的Location字段中
+- 201(Created): 已创建。成功请求并创建了新的资源, 且其URI在响应的Location字段中.
 
 - 202(Accepted): 已经接受请求, 但未处理
 
+- 203(Non-Authoritative Information): 响应被代理服务器修改, 非权威的消息
+
 - 204(No Content): 已经成功处理请求, 但是没有返回任何内容
+
+- 206(Partial Content): 表明此内容是range指定的资源的一部分
 
 - 301(Moved Permanently)：永久性重定向, 新的URI在Location字段中(可缓存的)
 
-- 302(Found)：临时重定向, 客户端应当继续向原有地址发送以后的请求。只有在Cache-Control或Expires中进行了指定的情况下，这个响应才是可缓存的。
+- 302(Found)：临时重定向, 客户端应当继续向原有地址发送以后的请求。只有在Cache-Control或Expires中进行了指定的情况下，这个响应才是可缓存的。**就是請求的資源暫時駐留在不同的URI下(在Location字段里)**
+
+- 303(See Other): 用于在收到HTTP Post后, 进行URL重定向GET的操作(因为POST没有幂等性)
 
 - 304(Not Modified):  表示资源在由请求头中的If-Modified-Since或If-None-Match参数指定的这一版本之后，未曾被修改。在这种情况下，由于客户端仍然具有以前下载的副本，因此不需要重新传输资源。
 
 - 400(Bad Request)：请求报文错误(语法错误, 请求太大,)，服务器无法识别
 
-- 401(Unauthorized): 未认证
+- 401(Unauthorized): 未认证, 返回时会在WWWAuthenticate首部附带用户信息的请求, 当初次收到此请求时, 会弹出认证窗口
 
 - 403(Forbidden):  服务器已经理解请求, 但是拒绝执行, 禁止访问
 
@@ -60,7 +66,7 @@
 
 - 502:  Bad Gateway, 作为[网关](https://zh.wikipedia.org/wiki/网关)或者[代理](https://zh.wikipedia.org/wiki/代理服务器)工作的服务器尝试执行请求时，从上游服务器接收到无效的响应
 
-- 503: 服务器忙(临时维护或者过载)
+- 503: 服务器忙(临时维护或者过载), 若服务器知道什么时候可以恢复正常, 则可以在响应头加入retry-after告诉客户端什么时候再重试
 
   
 
@@ -114,34 +120,36 @@
    1. 通用首部:
 
       + Date: 报文日期
-      + Keep-Alive: 是否开启持久连接 
-   
       + Connection：连接的管理
    + Cache-Control：缓存的控制
       + Transfer-Encoding：报文主体的传输编码方式
-   
+
    2. **请求首部字段（请求报文会使用的首部字段）**:
-   
+
       1. Content-Type: 报文主体的对象类型
       2. Accept: 用户代理可处理的媒体类型
       3. Authorization: Web认证信息
-      4. If-Modified-Since: 比较资源的更新时间
-      5. If-None-Match: 比较实体标记
+      4. If-Modified-Since/ if-Unmodified-Since: 比较资源的更新时间
+      5. If-Match / If-None-Match: 比较实体标记(Etag)
       6. Referer: 从哪个页面进行请求
       7. User-Agent: http客户端的信息
-   
+      8. **if-range, range: if-range中指定了某个资源的etag, 如果服务器找到了, 则发送此资源由range指定的byte范围(用于断点续传)**
+
    3. 响应首部:
-   
+
       1. Location: 用于重定向
       2. Proxy-Authenticate: 代理服务器对客户端的认证信息
       3. Server: HTTP服务器的安装信息
-   
+
    4. 实体字段(用于补充说明实体的信息):
-   
+
       1. Allow: 资源支持的HTTP方法
-      2. Content-Encoding:资源编码类型
-      3. Expires: 实体过期的日期
-      4. Content-Length: 资源长度 
+      2. Content-Encoding:资源编码类型(gzip/deflate/compress/identity)
+      3. Content-Length: 实体大小, 单位字节
+      4. Content-Type:表示实体类型(text/html)
+      5. Content-Range: 范围请求(range)指定的字节范围
+      6. Expires: 实体过期的日期 
+
 8. HTTP 1.1 新特性
 
    + 缓存处理(cache-control)
@@ -155,14 +163,37 @@
 
       - 每次http请求都会进行一次TCP握手,  同时一个网页除了页面的HTML之外还会有很多静态资源以及诸多的API调用，如果每个请求都一个连接，势必网页的一次加载就会和服务器创建多次连接，这是非常浪费服务器资源的，同时也让客户端的访问速度慢了不少。
       - 持久连接也不宜一直保持，毕竟每个连接都会占用服务器资源，如果打开网页的人太多，那服务器资源也会紧张，所以一般服务器都会配置一个KeepAlive Timeout参数和KeepAlive Requests参数限制单个连接持续时长和最多服务的请求次数。
+      - 由请求字段Connection控制, 当Connection:close时, 为短链接.
+      - 持久连接还需要一个Content-Length来表明响应体的长度, 以此来让浏览器判断HTTP响应是否已经结束
 
-   2. Pipeline管道化:
+   2. 断点续传:
+
+      发送请求时利用range字段将资源字节区间请求, 响应时用content-range告诉客户端发送的字节范围. 资源tag用if-range字段指定.
+      
+   3. 分块传输:
+
+      1. 工作在长连接状态, 需要在Transfer-Encoding中指定传输方式为chunked
+      2. **chunked表示输出内容长度不确定, 所以用于动态内容的传输, 否则请用content-length和range**
+      3. 分块传输允许服务器在最后发送消息头字段, 对于头字段无法确定的内容十分有用, 比如消息需要摘要来签名, 得等消息完整后才能生成
+      4. 服务器有时用gzip/deflate来进行压缩以缩短传输时间, 这时文件可以用分块传输来一边压缩一边发送
+      5. 每个非空的块包含数据的字节数, 最后一个块大小为0
+
+   4. Pipeline管道化:
 
       HTTP1.0不支持管线化，同一个连接处理请求的顺序是逐个应答模式，处理一个请求就需要耗费一个TTL，也就是客户端到服务器的往返时间，处理N个请求就是N个TTL时长。当页面的请求非常多时，页面加载速度就会非常缓慢。
 
       可以同时将多个请求发送到服务器，然后逐个读取响应。这个管线化和Redis的管线化原理是一样的，响应的顺序必须和请求的顺序保持一致。
 
-   3. 断点续传:**实际上就是利用HTTP消息头使用分块传输编码，将实体主体分块传输。**
+   5. 带宽优化:
+
+      - 使用range/content-range字段指定每次发送的实体字节范围, 降低负载
+      - 增加100响应码, 允许先发送头部, 再发送请求体
+
+   6. Host域:
+
+      支持一个服务器上的多个虚拟主机, 即多个url对应一个服务器ip
+
+      
 
 9. HTTP/2:
 
@@ -219,4 +250,59 @@
 
        
 
-    
+11. ### Cookies:
+
+    1. 用于管理服务端和客户端的状态, 存储在客户端
+
+       1. Set-Cookie: 响应头字段,用于设置开始时cookie的状态
+
+           - NAME=VALUE: 设置cookie的名称和值
+           - expires=DATE: 过期时间
+           - path=PATH:限制cookie发送的路径范围
+           - domain=PATH: 限制cookie对应的域名
+           - Secure: 当用HTTPs时才可以发送cookie
+           - HttpOnly: 加以限制, 使cookie不能被js访问
+           
+       2. Cookie: 请求首部字段, 告诉服务器客户端的请求附带了cookie
+
+    2. Session与cookie管理:
+
+       ![](/home/halo/notes/session_cookie.png)
+
+       1. **session存在服务器, cookie存在客户端, 而session机制依赖与cookie**
+
+       2. 过程:
+
+          1. 客户端把id, 密码放在请求体内并post
+          2. 服务器生成一个session_id, 并在响应头的Set-Cookie中写入
+          3. 客户端收到session_id将其作为cookie并保存起来, 下次发送请求的时候将cookie(附带有session_id)发送给服务器 
+
+       3. 分布式session四种方案:
+
+          1. 客户端存储, 将用户状态信息直接存储cookie上
+
+             - 不安全
+             - cookie存储大小限制
+             - 网络开销大
+
+          2. session复制: 搭建集群, 但任何一个服务器上session发生改变, 便将session的改变广播同步到所有服务器上
+
+             - 容错性强
+             - 网络负载大
+             - 存储需求大
+
+          3. session绑定: 
+
+             利用nginx反向代理, 根据session将请求分布散列到某个服务器
+
+             - 可用性低, 当某个服务器挂掉时, 这个session便丢失了
+             - 配置简单
+
+          4. session共享:
+
+             用redis/memcached集群存储session
+
+             - 高可用
+             - 持久化
+
+             
